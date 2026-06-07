@@ -37,7 +37,7 @@ export default function SessionsPage() {
           <h1 className="text-xl font-semibold">Session history</h1>
           <Link
             href="/session/new"
-            className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-400 transition-colors"
+            className="rounded-lg bg-teal-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-teal-400 transition-colors"
           >
             + New
           </Link>
@@ -57,7 +57,7 @@ export default function SessionsPage() {
               <div className="space-y-0.5">
                 <p className="text-sm font-medium">{s.date}</p>
                 {s.song_name && (
-                  <p className="text-xs text-amber-400">{s.song_name}</p>
+                  <p className="text-xs text-teal-400">{s.song_name}</p>
                 )}
               </div>
               <span className="text-xs text-zinc-500">

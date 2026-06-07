@@ -80,7 +80,7 @@ export default function DashboardPage() {
         {/* Quick action */}
         <Link
           href="/session/new"
-          className="block w-full rounded-xl bg-amber-500 px-6 py-4 text-center text-lg font-semibold text-zinc-950 hover:bg-amber-400 transition-colors"
+          className="block w-full rounded-xl bg-teal-500 px-6 py-4 text-center text-lg font-semibold text-zinc-950 hover:bg-teal-400 transition-colors"
         >
           + Log today&apos;s session
         </Link>
@@ -91,7 +91,7 @@ export default function DashboardPage() {
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500">
               Maintenance pick
             </h2>
-            <p className="text-base font-medium text-amber-400">{pick.name}</p>
+            <p className="text-base font-medium text-teal-400">{pick.name}</p>
           </section>
         )}
 
@@ -128,7 +128,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="h-1.5 w-full rounded-full bg-zinc-800">
                     <div
-                      className="h-1.5 rounded-full bg-amber-500 transition-all"
+                      className="h-1.5 rounded-full bg-teal-500 transition-all"
                       style={{ width: `${pct}%` }}
                     />
                   </div>
