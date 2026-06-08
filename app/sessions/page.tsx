@@ -51,7 +51,7 @@ export default function SessionsPage() {
           {sessions?.map((s) => (
             <Link
               key={s.id}
-              href={`/sessions/${s.id}`}
+              href={`/sessions/view?id=${s.id}`}
               className="flex items-center justify-between rounded-lg bg-zinc-900 px-4 py-3 hover:bg-zinc-800 transition-colors"
             >
               <div className="space-y-0.5">

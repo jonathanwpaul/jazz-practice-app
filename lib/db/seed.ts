@@ -3,17 +3,15 @@ import type { DataSource } from "typeorm";
 export async function seed(ds: DataSource): Promise<void> {
   const qr = ds.createQueryRunner();
   try {
-    const [{ cnt }] = await qr.query(
-      "SELECT COUNT(*) as cnt FROM categories"
-    );
+    const [{ cnt }] = await qr.query("SELECT COUNT(*) as cnt FROM categories");
     if (Number(cnt) > 0) return;
 
     await qr.query(`
       INSERT INTO categories (id, name, monthly_target, sort_order) VALUES
-        (1, 'P1 · Improvising',    16, 1),
-        (2, 'P2 · Technique',      16, 2),
-        (3, 'P3 · Piano Standards', 8, 3),
-        (4, 'P4 · Jazz Piano',      6, 4)
+        (1, 'Improvising',    16, 1),
+        (2, 'Technique',      16, 2),
+        (3, 'Piano Standards', 8, 3),
+        (4, 'Jazz Piano',      6, 4)
     `);
 
     await qr.query(`

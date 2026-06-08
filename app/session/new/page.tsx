@@ -43,6 +43,7 @@ export default function NewSessionPage() {
   const [animatingTasks, setAnimatingTasks] = useState<Set<number>>(new Set());
   const [doneTasks, setDoneTasks] = useState<Set<number>>(new Set());
   const [notes, setNotes] = useState("");
+  const [saved, setSaved] = useState(false);
 
   const { data: songs } = useQuery<Song[]>({
     queryKey: ["songs", "all"],
@@ -82,13 +83,16 @@ export default function NewSessionPage() {
     setDoneTasks((prev) => { const s = new Set(prev); s.add(id); return s; });
   }
 
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const { mutate: save, isPending } = useMutation({
     mutationFn: async () => {
-      const result: { id: number }[] = await ds.query(
-        "INSERT INTO sessions (date, song_id, notes) VALUES (?, ?, ?) RETURNING id",
+      await ds.query(
+        "INSERT INTO sessions (date, song_id, notes) VALUES (?, ?, ?)",
         [date, songId ? Number(songId) : null, notes || null]
       );
-      const sessionId = result[0].id;
+      const rows: { id: number }[] = await ds.query("SELECT last_insert_rowid() as id");
+      const sessionId = rows[0].id;
       for (const taskId of checkedTasks) {
         await ds.query("INSERT INTO session_tasks (session_id, task_id) VALUES (?, ?)", [sessionId, taskId]);
       }
@@ -96,7 +100,11 @@ export default function NewSessionPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      router.push("/sessions");
+      setSaved(true);
+      setTimeout(() => router.push("/"), 1200);
+    },
+    onError: (err) => {
+      setSaveError(err instanceof Error ? err.message : String(err));
     },
   });
 
@@ -221,11 +229,22 @@ export default function NewSessionPage() {
 
         <button
           onClick={() => save()}
-          disabled={isPending}
+          disabled={isPending || saved}
           className="w-full rounded-xl bg-teal-500 px-6 py-4 text-center text-lg font-semibold text-zinc-950 hover:bg-teal-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isPending ? "Saving…" : "Save session"}
         </button>
+
+        {saved && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-xl bg-zinc-900 border border-teal-500/50 px-6 py-3 text-sm font-semibold text-teal-400 shadow-lg">
+            Session saved ✓
+          </div>
+        )}
+        {saveError && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-xl bg-zinc-900 border border-red-500/50 px-6 py-3 text-sm font-semibold text-red-400 shadow-lg max-w-xs text-center">
+            Save failed: {saveError}
+          </div>
+        )}
       </main>
     </div>
   );

@@ -20,6 +20,8 @@ interface Task {
 interface Category {
   id: number;
   name: string;
+  monthly_target: number;
+  sort_order: number;
 }
 
 interface Rate {
@@ -120,10 +122,18 @@ function TaskFormFields({
 export default function TasksPage() {
   const ds = useDb();
   const queryClient = useQueryClient();
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<TaskForm>(EMPTY_FORM);
-  const [addForm, setAddForm] = useState<TaskForm>(EMPTY_FORM);
-  const [showAdd, setShowAdd] = useState(false);
+
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [editTaskForm, setEditTaskForm] = useState<TaskForm>(EMPTY_FORM);
+  const [addTaskForm, setAddTaskForm] = useState<TaskForm>(EMPTY_FORM);
+  const [showAddTask, setShowAddTask] = useState(false);
+
+  const [editingCatId, setEditingCatId] = useState<number | null>(null);
+  const [editCatName, setEditCatName] = useState("");
+  const [editCatTarget, setEditCatTarget] = useState("");
+  const [showAddCat, setShowAddCat] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatTarget, setNewCatTarget] = useState("");
 
   const { data: tasks } = useQuery<Task[]>({
     queryKey: ["tasks", "full"],
@@ -140,13 +150,66 @@ export default function TasksPage() {
 
   const { data: categories } = useQuery<Category[]>({
     queryKey: ["categories"],
-    queryFn: () => ds.query("SELECT id, name FROM categories ORDER BY sort_order ASC"),
+    queryFn: () =>
+      ds.query("SELECT id, name, monthly_target, sort_order FROM categories ORDER BY sort_order ASC"),
   });
 
   const { data: rates } = useQuery<Rate[]>({
     queryKey: ["rates"],
     queryFn: () => ds.query("SELECT id, name FROM rates ORDER BY id ASC"),
   });
+
+  // ── Category mutations ──────────────────────────────────────────────────────
+
+  const { mutate: addCategory } = useMutation({
+    mutationFn: ({ name, monthly_target }: { name: string; monthly_target: number }) => {
+      const maxOrder = categories ? Math.max(0, ...categories.map((c) => c.sort_order)) : 0;
+      return ds.query(
+        "INSERT INTO categories (name, monthly_target, sort_order) VALUES (?, ?, ?)",
+        [name, monthly_target, maxOrder + 1]
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      setNewCatName("");
+      setNewCatTarget("");
+      setShowAddCat(false);
+    },
+  });
+
+  const { mutate: updateCategory } = useMutation({
+    mutationFn: ({ id, name, monthly_target }: { id: number; name: string; monthly_target: number }) =>
+      ds.query("UPDATE categories SET name = ?, monthly_target = ? WHERE id = ?", [name, monthly_target, id]),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      setEditingCatId(null);
+    },
+  });
+
+  const { mutate: deleteCategory } = useMutation({
+    mutationFn: async (id: number) => {
+      await ds.query(
+        "DELETE FROM session_tasks WHERE task_id IN (SELECT id FROM tasks WHERE category_id = ?)",
+        [id]
+      );
+      await ds.query(
+        "DELETE FROM song_tasks WHERE task_id IN (SELECT id FROM tasks WHERE category_id = ?)",
+        [id]
+      );
+      await ds.query("DELETE FROM tasks WHERE category_id = ?", [id]);
+      await ds.query("DELETE FROM categories WHERE id = ?", [id]);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+
+  // ── Task mutations ──────────────────────────────────────────────────────────
 
   const { mutate: addTask } = useMutation({
     mutationFn: (f: TaskForm) =>
@@ -156,8 +219,8 @@ export default function TasksPage() {
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
-      setAddForm(EMPTY_FORM);
-      setShowAdd(false);
+      setAddTaskForm(EMPTY_FORM);
+      setShowAddTask(false);
     },
   });
 
@@ -169,7 +232,7 @@ export default function TasksPage() {
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
-      setEditingId(null);
+      setEditingTaskId(null);
     },
   });
 
@@ -182,39 +245,80 @@ export default function TasksPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }),
   });
 
-  const groupedCategories: Category[] = tasks
-    ? Array.from(
-        new Map(tasks.map((t) => [t.category_id, { id: t.category_id, name: t.category_name }])).values()
-      )
-    : [];
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  function startEditCat(cat: Category) {
+    setEditingCatId(cat.id);
+    setEditCatName(cat.name);
+    setEditCatTarget(String(cat.monthly_target));
+  }
+
+  function confirmDeleteCategory(cat: Category) {
+    const taskCount = tasks?.filter((t) => t.category_id === cat.id).length ?? 0;
+    const warning =
+      taskCount > 0
+        ? `Delete category "${cat.name}"?\n\nThis will also permanently delete all ${taskCount} task${taskCount !== 1 ? "s" : ""} within it.`
+        : `Delete category "${cat.name}"?`;
+    if (confirm(warning)) deleteCategory(cat.id);
+  }
 
   return (
     <div className="flex flex-col min-h-screen">
       <Nav />
       <main className="flex-1 p-6 max-w-2xl mx-auto w-full space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <h1 className="text-xl font-semibold">Tasks</h1>
-          <button
-            onClick={() => { setShowAdd((v) => !v); setAddForm(EMPTY_FORM); }}
-            className="rounded-lg bg-teal-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-teal-400 transition-colors"
-          >
-            + Add task
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setShowAddCat((v) => !v); setNewCatName(""); setNewCatTarget(""); }}
+              className="rounded-lg border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-300 hover:border-teal-500 hover:text-teal-400 transition-colors"
+            >
+              + Category
+            </button>
+            <button
+              onClick={() => { setShowAddTask((v) => !v); setAddTaskForm(EMPTY_FORM); }}
+              className="rounded-lg bg-teal-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-teal-400 transition-colors"
+            >
+              + Task
+            </button>
+          </div>
         </div>
 
-        {showAdd && (
-          <div className="space-y-2">
-            <TaskFormFields form={addForm} onChange={setAddForm} categories={categories} rates={rates} />
+        {showAddCat && (
+          <div className="rounded-lg bg-zinc-900 p-4 space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">New category</p>
+            <input
+              autoFocus
+              value={newCatName}
+              onChange={(e) => setNewCatName(e.target.value)}
+              placeholder="Category name"
+              className="w-full rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-100 border border-zinc-700 focus:outline-none focus:border-teal-500 placeholder:text-zinc-600"
+            />
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-zinc-500 shrink-0">Monthly target</label>
+              <input
+                type="number"
+                min={1}
+                value={newCatTarget}
+                onChange={(e) => setNewCatTarget(e.target.value)}
+                placeholder="e.g. 12"
+                className="w-24 rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-100 border border-zinc-700 focus:outline-none focus:border-teal-500 placeholder:text-zinc-600"
+              />
+            </div>
             <div className="flex gap-2 justify-end">
               <button
-                onClick={() => { setShowAdd(false); setAddForm(EMPTY_FORM); }}
+                onClick={() => setShowAddCat(false)}
                 className="rounded px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200"
               >
                 Cancel
               </button>
               <button
-                onClick={() => { if (addForm.name.trim() && addForm.category_id) addTask(addForm); }}
-                disabled={!addForm.name.trim() || !addForm.category_id}
+                onClick={() => {
+                  const name = newCatName.trim();
+                  const target = parseInt(newCatTarget, 10);
+                  if (name && target > 0) addCategory({ name, monthly_target: target });
+                }}
+                disabled={!newCatName.trim() || !parseInt(newCatTarget, 10)}
                 className="rounded-lg bg-teal-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-teal-400 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Save
@@ -223,12 +327,95 @@ export default function TasksPage() {
           </div>
         )}
 
-        {groupedCategories.map((cat) => (
+        {showAddTask && (
+          <div className="space-y-2">
+            <TaskFormFields form={addTaskForm} onChange={setAddTaskForm} categories={categories} rates={rates} />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => { setShowAddTask(false); setAddTaskForm(EMPTY_FORM); }}
+                className="rounded px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { if (addTaskForm.name.trim() && addTaskForm.category_id) addTask(addTaskForm); }}
+                disabled={!addTaskForm.name.trim() || !addTaskForm.category_id}
+                className="rounded-lg bg-teal-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-teal-400 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        )}
+
+        {categories?.map((cat) => (
           <section key={cat.id}>
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-widest text-teal-500">
-              {cat.name}
-            </h2>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              {editingCatId === cat.id ? (
+                <div className="flex items-center gap-2 flex-1">
+                  <input
+                    autoFocus
+                    value={editCatName}
+                    onChange={(e) => setEditCatName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Escape" && setEditingCatId(null)}
+                    className="flex-1 rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-100 border border-teal-500 focus:outline-none"
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    value={editCatTarget}
+                    onChange={(e) => setEditCatTarget(e.target.value)}
+                    className="w-16 rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-100 border border-zinc-700 focus:outline-none focus:border-teal-500"
+                    title="Monthly target"
+                  />
+                  <button
+                    onClick={() => {
+                      const name = editCatName.trim();
+                      const target = parseInt(editCatTarget, 10);
+                      if (name && target > 0) updateCategory({ id: cat.id, name, monthly_target: target });
+                    }}
+                    className="text-xs text-teal-400 hover:text-teal-300 transition-colors"
+                  >
+                    save
+                  </button>
+                  <button
+                    onClick={() => setEditingCatId(null)}
+                    className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    cancel
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-teal-500">
+                    {cat.name}
+                    <span className="ml-2 normal-case font-normal text-zinc-600">
+                      target {cat.monthly_target}/mo
+                    </span>
+                  </h2>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      onClick={() => startEditCat(cat)}
+                      className="text-xs text-zinc-600 hover:text-teal-400 transition-colors"
+                    >
+                      edit
+                    </button>
+                    <button
+                      onClick={() => confirmDeleteCategory(cat)}
+                      className="text-zinc-600 hover:text-red-400 transition-colors text-xl leading-none"
+                      aria-label="Delete category"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
             <div className="rounded-lg bg-zinc-900 divide-y divide-zinc-800">
+              {tasks?.filter((t) => t.category_id === cat.id).length === 0 && (
+                <p className="px-4 py-3 text-sm text-zinc-600">No tasks yet.</p>
+              )}
               {tasks
                 ?.filter((t) => t.category_id === cat.id)
                 .map((t) => (
@@ -248,11 +435,11 @@ export default function TasksPage() {
                         </span>
                         <button
                           onClick={() => {
-                            if (editingId === t.id) {
-                              setEditingId(null);
+                            if (editingTaskId === t.id) {
+                              setEditingTaskId(null);
                             } else {
-                              setEditingId(t.id);
-                              setEditForm({
+                              setEditingTaskId(t.id);
+                              setEditTaskForm({
                                 name: t.name,
                                 category_id: String(t.category_id),
                                 rate_id: t.rate_id ? String(t.rate_id) : "",
@@ -264,30 +451,30 @@ export default function TasksPage() {
                           }}
                           className="text-xs text-zinc-500 hover:text-teal-400 transition-colors"
                         >
-                          {editingId === t.id ? "close" : "edit"}
+                          {editingTaskId === t.id ? "close" : "edit"}
                         </button>
                         <button
                           onClick={() => { if (confirm(`Delete "${t.name}"?`)) deleteTask(t.id); }}
                           className="text-zinc-600 hover:text-red-400 transition-colors text-xl leading-none"
-                          aria-label="Delete"
+                          aria-label="Delete task"
                         >
                           ×
                         </button>
                       </div>
                     </div>
-                    {editingId === t.id && (
+                    {editingTaskId === t.id && (
                       <div className="px-4 pb-4 space-y-2">
-                        <TaskFormFields form={editForm} onChange={setEditForm} categories={categories} rates={rates} />
+                        <TaskFormFields form={editTaskForm} onChange={setEditTaskForm} categories={categories} rates={rates} />
                         <div className="flex gap-2 justify-end">
                           <button
-                            onClick={() => setEditingId(null)}
+                            onClick={() => setEditingTaskId(null)}
                             className="rounded px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200"
                           >
                             Cancel
                           </button>
                           <button
-                            onClick={() => { if (editForm.name.trim() && editForm.category_id) updateTask({ id: t.id, f: editForm }); }}
-                            disabled={!editForm.name.trim() || !editForm.category_id}
+                            onClick={() => { if (editTaskForm.name.trim() && editTaskForm.category_id) updateTask({ id: t.id, f: editTaskForm }); }}
+                            disabled={!editTaskForm.name.trim() || !editTaskForm.category_id}
                             className="rounded-lg bg-teal-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-teal-400 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             Save
